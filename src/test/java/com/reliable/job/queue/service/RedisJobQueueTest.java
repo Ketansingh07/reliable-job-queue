@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import com.reliable.job.queue.model.Job;
@@ -29,10 +30,16 @@ class RedisJobQueueTest {
 	private RedisTemplate<String, Job> redisTemplate;
 
 	@Mock
+	private StringRedisTemplate stringRedisTemplate;
+
+	@Mock
 	private ListOperations<String, Job> listOperations;
 
 	@Mock
 	private ValueOperations<String, Job> valueOperations;
+
+	@Mock
+	private ValueOperations<String, String> stringValueOperations;
 
 	private RedisJobQueue redisJobQueue;
 
@@ -40,7 +47,7 @@ class RedisJobQueueTest {
 
 	@BeforeEach
 	void setUp() {
-		redisJobQueue = new RedisJobQueue(redisTemplate, 60L);
+		redisJobQueue = new RedisJobQueue(redisTemplate, stringRedisTemplate, 60L);
 		testJob = new Job("EMAIL", "user@test.com", 3);
 	}
 
@@ -58,21 +65,24 @@ class RedisJobQueueTest {
 	@Test
 	void acknowledge_shouldRemoveJobFromProcessingQueue() {
 		when(redisTemplate.opsForList()).thenReturn(listOperations);
+		when(listOperations.range(RedisJobQueue.PROCESSING_QUEUE, 0, -1)).thenReturn(List.of(testJob));
 
 		redisJobQueue.acknowledge(testJob);
 
-		verify(listOperations).remove(RedisJobQueue.PROCESSING_QUEUE, 0, testJob);
+		verify(listOperations).remove(RedisJobQueue.PROCESSING_QUEUE, 1, testJob);
 	}
 
 	@Test
 	void markCompleted_shouldRemoveAndSetTtl() {
 		when(redisTemplate.opsForList()).thenReturn(listOperations);
 		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(listOperations.range(RedisJobQueue.PROCESSING_QUEUE, 0, -1)).thenReturn(List.of(testJob));
+		when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOperations);
 
 		redisJobQueue.markCompleted(testJob);
 
-		verify(listOperations).remove(RedisJobQueue.PROCESSING_QUEUE, 0, testJob);
 		verify(valueOperations).set(eq("job:status:" + testJob.getJobId()), eq(testJob), eq(60L), eq(TimeUnit.MINUTES));
+		verify(stringValueOperations).increment("stats:completed");
 		assertEquals(Job.Status.COMPLETED, testJob.getStatus());
 	}
 
@@ -80,10 +90,10 @@ class RedisJobQueueTest {
 	void moveToDeadLetter_shouldRemoveFromProcessingAndPushToDLQ() {
 		when(redisTemplate.opsForList()).thenReturn(listOperations);
 		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(listOperations.range(RedisJobQueue.PROCESSING_QUEUE, 0, -1)).thenReturn(List.of(testJob));
 
 		redisJobQueue.moveToDeadLetter(testJob);
 
-		verify(listOperations).remove(RedisJobQueue.PROCESSING_QUEUE, 0, testJob);
 		verify(listOperations).leftPush(RedisJobQueue.DEAD_LETTER_QUEUE, testJob);
 		assertEquals(Job.Status.DEAD, testJob.getStatus());
 	}
@@ -92,10 +102,10 @@ class RedisJobQueueTest {
 	void reEnqueueWithBackoff_shouldMoveBackToPending() {
 		when(redisTemplate.opsForList()).thenReturn(listOperations);
 		when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+		when(listOperations.range(RedisJobQueue.PROCESSING_QUEUE, 0, -1)).thenReturn(List.of(testJob));
 
 		redisJobQueue.reEnqueueWithBackoff(testJob);
 
-		verify(listOperations).remove(RedisJobQueue.PROCESSING_QUEUE, 0, testJob);
 		verify(listOperations).leftPush(RedisJobQueue.PENDING_QUEUE, testJob);
 		assertEquals(Job.Status.PENDING, testJob.getStatus());
 	}
@@ -106,12 +116,15 @@ class RedisJobQueueTest {
 		when(listOperations.size(RedisJobQueue.PENDING_QUEUE)).thenReturn(5L);
 		when(listOperations.size(RedisJobQueue.PROCESSING_QUEUE)).thenReturn(2L);
 		when(listOperations.size(RedisJobQueue.DEAD_LETTER_QUEUE)).thenReturn(1L);
+		when(stringRedisTemplate.opsForValue()).thenReturn(stringValueOperations);
+		when(stringValueOperations.get("stats:completed")).thenReturn("10");
 
 		Map<String, Long> stats = redisJobQueue.getQueueStats();
 
 		assertEquals(5L, stats.get("pending"));
 		assertEquals(2L, stats.get("processing"));
 		assertEquals(1L, stats.get("deadLetter"));
+		assertEquals(10L, stats.get("completed"));
 	}
 
 	@Test
