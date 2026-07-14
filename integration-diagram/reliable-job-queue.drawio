@@ -1,0 +1,154 @@
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="draw.io" version="22.1.0">
+  <diagram id="reliable-job-queue-flow" name="Reliable Job Queue - Full Workflow">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="&lt;b&gt;Reliable Job Queue - Architecture &amp; Flow&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="550" y="20" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Client/Producer -->
+        <mxCell id="client" value="&lt;b&gt;Client&lt;/b&gt;&lt;br&gt;(REST API Call)&lt;br&gt;&lt;br&gt;POST /api/v1/jobs&lt;br&gt;?type=EMAIL&lt;br&gt;&amp;payload=user@test.com&lt;br&gt;&amp;maxRetries=3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="200" width="180" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- Spring Boot App -->
+        <mxCell id="app-boundary" value="&lt;b&gt;Spring Boot Application&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;fontSize=12;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
+          <mxGeometry x="320" y="80" width="960" height="740" as="geometry" />
+        </mxCell>
+
+        <!-- JobController -->
+        <mxCell id="controller" value="&lt;b&gt;JobController&lt;/b&gt;&lt;br&gt;&lt;br&gt;• POST /jobs (create)&lt;br&gt;• GET /jobs/{id} (status)&lt;br&gt;• GET /jobs/stats&lt;br&gt;• GET /jobs/dlq&lt;br&gt;• POST /jobs/dlq/{id}/retry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="370" y="180" width="200" height="140" as="geometry" />
+        </mxCell>
+
+        <!-- RedisJobQueue Service -->
+        <mxCell id="queue-service" value="&lt;b&gt;RedisJobQueue&lt;/b&gt;&lt;br&gt;(Service)&lt;br&gt;&lt;br&gt;• enqueue()&lt;br&gt;• dequeue() [BLMOVE]&lt;br&gt;• acknowledge()&lt;br&gt;• markCompleted()&lt;br&gt;• moveToDeadLetter()&lt;br&gt;• reEnqueueWithBackoff()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="180" width="200" height="160" as="geometry" />
+        </mxCell>
+
+        <!-- Redis -->
+        <mxCell id="redis" value="&lt;b&gt;Redis&lt;/b&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="100" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Pending Queue -->
+        <mxCell id="pending" value="&lt;b&gt;queue:pending&lt;/b&gt;&lt;br&gt;&lt;br&gt;[Job3] [Job2] [Job1]&lt;br&gt;&lt;br&gt;← LPUSH (new jobs enter left)&lt;br&gt;RPOP (oldest jobs exit right) →" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="260" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Processing Queue -->
+        <mxCell id="processing" value="&lt;b&gt;queue:processing&lt;/b&gt;&lt;br&gt;&lt;br&gt;[Job being worked on]&lt;br&gt;&lt;br&gt;Safety net — if worker crashes,&lt;br&gt;job is still here (not lost)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="400" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Dead Letter Queue -->
+        <mxCell id="dlq" value="&lt;b&gt;queue:dead_letter&lt;/b&gt;&lt;br&gt;&lt;br&gt;[Failed jobs — max retries exceeded]&lt;br&gt;&lt;br&gt;Can be manually retried via API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="680" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- JobWorker -->
+        <mxCell id="worker" value="&lt;b&gt;JobWorker&lt;/b&gt;&lt;br&gt;(@Scheduled - polls every 1s)&lt;br&gt;&lt;br&gt;1. Dequeue (BLMOVE)&lt;br&gt;2. Find handler for job type&lt;br&gt;3. Execute handler&lt;br&gt;4. On success → acknowledge&lt;br&gt;5. On failure → retry or DLQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="370" y="440" width="220" height="150" as="geometry" />
+        </mxCell>
+
+        <!-- Handler Registry -->
+        <mxCell id="handlers" value="&lt;b&gt;Job Handlers&lt;/b&gt;&lt;br&gt;(Strategy Pattern)&lt;br&gt;&lt;br&gt;• EmailJobHandler&lt;br&gt;• ReportJobHandler&lt;br&gt;• [Your custom handler]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="370" y="650" width="200" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Exponential Backoff -->
+        <mxCell id="backoff" value="&lt;b&gt;Exponential Backoff&lt;/b&gt;&lt;br&gt;&lt;br&gt;Retry 1: wait 2s&lt;br&gt;Retry 2: wait 4s&lt;br&gt;Retry 3: wait 8s&lt;br&gt;...then → DLQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="650" y="540" width="180" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Job Status Store -->
+        <mxCell id="status-store" value="&lt;b&gt;job:status:{id}&lt;/b&gt;&lt;br&gt;&lt;br&gt;Redis Key-Value store&lt;br&gt;for tracking each job's&lt;br&gt;current state" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="550" width="280" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows -->
+        <!-- Client to Controller -->
+        <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="client" target="controller" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow1-label" value="HTTP Request" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow1">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Controller to Queue Service -->
+        <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="controller" target="queue-service" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow2-label" value="enqueue(job)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow2">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Queue Service to Pending -->
+        <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="queue-service" target="pending" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow3-label" value="LPUSH" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow3">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Pending to Processing (BLMOVE) -->
+        <mxCell id="arrow4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="pending" target="processing" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow4-label" value="&lt;b&gt;BLMOVE&lt;/b&gt; (atomic)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" connectable="0" parent="arrow4">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Worker to Queue Service -->
+        <mxCell id="arrow5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.3;entryX=0;entryY=0.8;" edge="1" source="worker" target="queue-service" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow5-label" value="dequeue()" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow5">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Worker to Handlers -->
+        <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="worker" target="handlers" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow6-label" value="handler.handle(job)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow6">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Worker to Backoff -->
+        <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.8;entryX=0;entryY=0.5;dashed=1;" edge="1" source="worker" target="backoff" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow7-label" value="on failure" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#CC0000;" vertex="1" connectable="0" parent="arrow7">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Processing to DLQ -->
+        <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;entryX=0.5;entryY=0;dashed=1;strokeColor=#CC0000;" edge="1" source="processing" target="dlq" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow8-label" value="max retries exceeded" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontColor=#CC0000;" vertex="1" connectable="0" parent="arrow8">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Queue Service to Status Store -->
+        <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.9;entryX=0;entryY=0.5;dashed=1;" edge="1" source="queue-service" target="status-store" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow9-label" value="saveJobStatus()" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow9">
+          <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;─── Solid line = normal flow&lt;br&gt;- - - Dashed line = failure/status flow&lt;br&gt;&lt;font color=&quot;#CC0000&quot;&gt;Red = error path&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;resizable=0;points=[];autosize=1;strokeColor=#666666;fillColor=#f5f5f5;fontSize=10;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="700" width="200" height="80" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

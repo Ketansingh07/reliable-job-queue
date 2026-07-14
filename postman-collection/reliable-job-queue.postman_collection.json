@@ -1,0 +1,352 @@
+{
+	"info": {
+		"_postman_id": "reliable-job-queue-collection",
+		"name": "Reliable Job Queue API",
+		"description": "Complete collection for testing the Reliable Job Queue REST API.\n\n## How to use:\n1. Start Redis: `docker compose up -d`\n2. Start the app: `mvn spring-boot:run -Dspring-boot.run.profiles=local`\n3. Run these requests in order\n\n## Flow:\n1. Create a job (POST)\n2. Check its status (GET by ID)\n3. View queue stats (GET stats)\n4. If job fails, check DLQ (GET dlq)\n5. Retry from DLQ (POST retry)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "jobId",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Create Job - Email",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"pm.collectionVariables.set('jobId', jsonData.jobId);",
+							"",
+							"pm.test('Status code is 200', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test('Job has an ID', function () {",
+							"    pm.expect(jsonData.jobId).to.not.be.empty;",
+							"});",
+							"",
+							"pm.test('Job status is PENDING', function () {",
+							"    pm.expect(jsonData.status).to.eql('PENDING');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs?type=EMAIL&payload=user@example.com&maxRetries=3",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs"],
+					"query": [
+						{
+							"key": "type",
+							"value": "EMAIL",
+							"description": "Job type - must match a registered JobHandler"
+						},
+						{
+							"key": "payload",
+							"value": "user@example.com",
+							"description": "The data the job handler will process"
+						},
+						{
+							"key": "maxRetries",
+							"value": "3",
+							"description": "How many times to retry before moving to DLQ"
+						}
+					]
+				},
+				"description": "Creates a new EMAIL job and adds it to the pending queue.\n\nThe worker will pick it up within 1 second and process it."
+			},
+			"response": [
+				{
+					"name": "Success",
+					"status": "OK",
+					"code": 200,
+					"body": "{\n    \"jobId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"jobType\": \"EMAIL\",\n    \"payload\": \"user@example.com\",\n    \"status\": \"PENDING\",\n    \"maxRetries\": 3,\n    \"retryCount\": 0,\n    \"errorMessage\": null,\n    \"createdAt\": 1704067200000,\n    \"updatedAt\": 1704067200000,\n    \"nextRetryAt\": 0\n}"
+				}
+			]
+		},
+		{
+			"name": "2. Create Job - Report Generation",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs?type=REPORT_GEN&payload=monthly-sales-jan-2024&maxRetries=5",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs"],
+					"query": [
+						{
+							"key": "type",
+							"value": "REPORT_GEN"
+						},
+						{
+							"key": "payload",
+							"value": "monthly-sales-jan-2024"
+						},
+						{
+							"key": "maxRetries",
+							"value": "5"
+						}
+					]
+				},
+				"description": "Creates a REPORT_GEN job. Demonstrates a different job type being handled by ReportJobHandler."
+			},
+			"response": []
+		},
+		{
+			"name": "3. Create Job - Default Retries",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs?type=EMAIL&payload=admin@example.com",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs"],
+					"query": [
+						{
+							"key": "type",
+							"value": "EMAIL"
+						},
+						{
+							"key": "payload",
+							"value": "admin@example.com"
+						}
+					]
+				},
+				"description": "Creates a job without specifying maxRetries — defaults to 3."
+			},
+			"response": []
+		},
+		{
+			"name": "4. Get Job Status",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test('Job has expected fields', function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('jobId');",
+							"    pm.expect(jsonData).to.have.property('status');",
+							"    pm.expect(jsonData).to.have.property('jobType');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs", "{{jobId}}"]
+				},
+				"description": "Retrieves the current status of a job by its ID.\n\nPossible statuses: PENDING, PROCESSING, COMPLETED, FAILED, DEAD\n\nNote: Run 'Create Job - Email' first to populate the jobId variable."
+			},
+			"response": [
+				{
+					"name": "Completed Job",
+					"status": "OK",
+					"code": 200,
+					"body": "{\n    \"jobId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"jobType\": \"EMAIL\",\n    \"payload\": \"user@example.com\",\n    \"status\": \"COMPLETED\",\n    \"maxRetries\": 3,\n    \"retryCount\": 0,\n    \"errorMessage\": null,\n    \"createdAt\": 1704067200000,\n    \"updatedAt\": 1704067201000,\n    \"nextRetryAt\": 0\n}"
+				}
+			]
+		},
+		{
+			"name": "5. Get Job Status - Not Found",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Status code is 404', function () {",
+							"    pm.response.to.have.status(404);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs/non-existent-job-id",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs", "non-existent-job-id"]
+				},
+				"description": "Demonstrates 404 response when job ID doesn't exist."
+			},
+			"response": []
+		},
+		{
+			"name": "6. Get Queue Statistics",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test('Has all queue counts', function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('pending');",
+							"    pm.expect(jsonData).to.have.property('processing');",
+							"    pm.expect(jsonData).to.have.property('deadLetter');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs/stats",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs", "stats"]
+				},
+				"description": "Returns the current count of jobs in each queue.\n\nUseful for monitoring and alerting."
+			},
+			"response": [
+				{
+					"name": "Queue Stats",
+					"status": "OK",
+					"code": 200,
+					"body": "{\n    \"pending\": 2,\n    \"processing\": 1,\n    \"deadLetter\": 0\n}"
+				}
+			]
+		},
+		{
+			"name": "7. List Dead Letter Queue Jobs",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Status code is 200', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test('Response is an array', function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs/dlq",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs", "dlq"]
+				},
+				"description": "Lists all jobs that have exhausted their retries and ended up in the Dead Letter Queue.\n\nThese jobs need manual investigation — check the errorMessage field to understand why they failed."
+			},
+			"response": [
+				{
+					"name": "DLQ with failed jobs",
+					"status": "OK",
+					"code": 200,
+					"body": "[\n    {\n        \"jobId\": \"x1y2z3-failed-job-id\",\n        \"jobType\": \"EMAIL\",\n        \"payload\": \"invalid@broken-server.com\",\n        \"status\": \"DEAD\",\n        \"maxRetries\": 3,\n        \"retryCount\": 3,\n        \"errorMessage\": \"SMTP connection timeout after 5000ms\",\n        \"createdAt\": 1704067200000,\n        \"updatedAt\": 1704067260000,\n        \"nextRetryAt\": 0\n    }\n]"
+				}
+			]
+		},
+		{
+			"name": "8. Retry Job from DLQ",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Status code is 200 or 404', function () {",
+							"    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs/dlq/{{jobId}}/retry",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs", "dlq", "{{jobId}}", "retry"]
+				},
+				"description": "Moves a job from the Dead Letter Queue back to the pending queue for reprocessing.\n\nResets the retry count to 0, giving the job a fresh start.\n\nUse case: The underlying issue (e.g., SMTP server was down) has been fixed, and you want to reprocess failed jobs."
+			},
+			"response": [
+				{
+					"name": "Success",
+					"status": "OK",
+					"code": 200,
+					"body": "\"Job re-queued from DLQ: a1b2c3d4-e5f6-7890-abcd-ef1234567890\""
+				},
+				{
+					"name": "Not Found",
+					"status": "Not Found",
+					"code": 404,
+					"body": ""
+				}
+			]
+		},
+		{
+			"name": "9. Bulk Create Jobs (Load Test)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/v1/jobs?type=EMAIL&payload=bulk-test-user@example.com&maxRetries=2",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "v1", "jobs"],
+					"query": [
+						{
+							"key": "type",
+							"value": "EMAIL"
+						},
+						{
+							"key": "payload",
+							"value": "bulk-test-user@example.com"
+						},
+						{
+							"key": "maxRetries",
+							"value": "2"
+						}
+					]
+				},
+				"description": "Use Postman Runner to execute this request multiple times to simulate load.\n\nThen check /stats to see jobs flowing through the queues."
+			},
+			"response": []
+		}
+	]
+}

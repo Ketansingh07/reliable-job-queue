@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Job Queue Dashboard</title>
+    <meta http-equiv="refresh" content="5">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; }
+        h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+        .subtitle { color: #94a3b8; margin-bottom: 2rem; font-size: 0.9rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 3rem; }
+        .stat-card { background: #1e293b; border-radius: 12px; padding: 1.5rem; border: 1px solid #334155; }
+        .stat-card.warning { border-color: #f59e0b; }
+        .stat-card.danger { border-color: #ef4444; }
+        .stat-label { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-value { font-size: 3rem; font-weight: 700; margin: 0.5rem 0; }
+        .stat-value.pending { color: #a78bfa; }
+        .stat-value.processing { color: #fbbf24; }
+        .stat-value.dead { color: #f87171; }
+        .stat-desc { font-size: 0.8rem; color: #64748b; }
+        .flow-diagram { background: #1e293b; border-radius: 12px; padding: 2rem; border: 1px solid #334155; margin-bottom: 2rem; font-family: monospace; font-size: 0.85rem; color: #94a3b8; white-space: pre; overflow-x: auto; }
+        h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+        table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 12px; overflow: hidden; }
+        th { background: #334155; padding: 0.75rem 1rem; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+        td { padding: 0.75rem 1rem; border-top: 1px solid #334155; font-size: 0.85rem; }
+        .status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .status-dead { background: #451a1a; color: #f87171; }
+        .empty-state { text-align: center; padding: 3rem; color: #64748b; }
+        .retry-btn { background: #3b82f6; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+        .retry-btn:hover { background: #2563eb; }
+        .refresh-note { text-align: right; color: #64748b; font-size: 0.75rem; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>⚡ Reliable Job Queue</h1>
+    <p class="subtitle">Real-time queue monitoring dashboard — auto-refreshes every 5 seconds</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Pending</div>
+            <div class="stat-value pending" th:text="${stats['pending']}">0</div>
+            <div class="stat-desc">Jobs waiting to be processed</div>
+        </div>
+        <div class="stat-card" th:classappend="${stats['processing'] > 0} ? 'warning' : ''">
+            <div class="stat-label">Processing</div>
+            <div class="stat-value processing" th:text="${stats['processing']}">0</div>
+            <div class="stat-desc">Jobs currently being worked on</div>
+        </div>
+        <div class="stat-card" th:classappend="${stats['deadLetter'] > 0} ? 'danger' : ''">
+            <div class="stat-label">Dead Letter</div>
+            <div class="stat-value dead" th:text="${stats['deadLetter']}">0</div>
+            <div class="stat-desc">Failed jobs — need attention</div>
+        </div>
+    </div>
+
+    <div class="flow-diagram">
+Producer ──► [queue:pending] ──BLMOVE──► [queue:processing] ──► SUCCESS (removed)
+                                                │
+                                          FAILURE + retries left → re-enqueue with backoff
+                                                │
+                                          MAX RETRIES → [queue:dead_letter]
+    </div>
+
+    <h2>🪦 Dead Letter Queue</h2>
+    <p class="refresh-note">Auto-refreshes every 5s</p>
+
+    <div th:if="${#lists.isEmpty(dlqJobs)}">
+        <div class="empty-state">
+            <p>✅ No failed jobs — everything is healthy!</p>
+        </div>
+    </div>
+
+    <table th:if="${!#lists.isEmpty(dlqJobs)}">
+        <thead>
+            <tr>
+                <th>Job ID</th>
+                <th>Type</th>
+                <th>Payload</th>
+                <th>Retries</th>
+                <th>Error</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="job : ${dlqJobs}">
+                <td th:text="${#strings.abbreviate(job.jobId, 12)}">abc-123</td>
+                <td><span class="status-badge status-dead" th:text="${job.jobType}">EMAIL</span></td>
+                <td th:text="${#strings.abbreviate(job.payload, 30)}">user@test.com</td>
+                <td th:text="${job.retryCount + '/' + job.maxRetries}">3/3</td>
+                <td th:text="${job.errorMessage}">timeout</td>
+                <td>
+                    <form th:action="@{'/api/v1/jobs/dlq/' + ${job.jobId} + '/retry?redirect=dashboard'}" method="post" style="display:inline;">
+                        <button class="retry-btn" type="submit">↻ Retry</button>
+                    </form>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>

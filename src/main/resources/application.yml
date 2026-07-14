@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: reliable-job-queue
+  data:
+    redis:
+      host: immune-boxer-127154.upstash.io
+      port: 6380
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+job-queue:
+  completed-job-ttl-minutes: 60
