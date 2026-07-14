@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisListCommands;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import com.reliable.job.queue.model.Job;
@@ -22,11 +23,14 @@ public class RedisJobQueue {
 	private static final String JOB_STATUS_PREFIX = "job:status:";
 
 	private final RedisTemplate<String, Job> redisTemplate;
+	private final StringRedisTemplate stringRedisTemplate;
 	private final long completedJobTtlMinutes;
 
 	public RedisJobQueue(RedisTemplate<String, Job> redisTemplate,
+			StringRedisTemplate stringRedisTemplate,
 			@Value("${job-queue.completed-job-ttl-minutes:60}") long completedJobTtlMinutes) {
 		this.redisTemplate = redisTemplate;
+		this.stringRedisTemplate = stringRedisTemplate;
 		this.completedJobTtlMinutes = completedJobTtlMinutes;
 	}
 
@@ -41,8 +45,8 @@ public class RedisJobQueue {
 			byte[] source = PENDING_QUEUE.getBytes();
 			byte[] destination = PROCESSING_QUEUE.getBytes();
 
-			byte[] rawJob = connection.listCommands().bLMove(source, destination, RedisListCommands.Direction.RIGHT,
-					RedisListCommands.Direction.LEFT, 5);
+			byte[] rawJob = connection.listCommands().bLMove(source, destination,
+					RedisListCommands.Direction.RIGHT, RedisListCommands.Direction.LEFT, 5);
 
 			if (rawJob == null) {
 				return null;
@@ -58,13 +62,23 @@ public class RedisJobQueue {
 	}
 
 	public void acknowledge(Job job) {
-		redisTemplate.opsForList().remove(PROCESSING_QUEUE, 0, job);
+		// Remove from processing by finding the job with matching ID
+		List<Job> processingJobs = redisTemplate.opsForList().range(PROCESSING_QUEUE, 0, -1);
+		if (processingJobs != null) {
+			for (Job pJob : processingJobs) {
+				if (pJob.getJobId().equals(job.getJobId())) {
+					redisTemplate.opsForList().remove(PROCESSING_QUEUE, 1, pJob);
+					break;
+				}
+			}
+		}
 	}
 
 	public void markCompleted(Job job) {
 		acknowledge(job);
 		job.setStatus(Job.Status.COMPLETED);
 		saveJobStatusWithTtl(job);
+		stringRedisTemplate.opsForValue().increment("stats:completed");
 	}
 
 	public void moveToDeadLetter(Job job) {
@@ -112,6 +126,8 @@ public class RedisJobQueue {
 		stats.put("pending", getQueueSize(PENDING_QUEUE));
 		stats.put("processing", getQueueSize(PROCESSING_QUEUE));
 		stats.put("deadLetter", getQueueSize(DEAD_LETTER_QUEUE));
+		String completed = stringRedisTemplate.opsForValue().get("stats:completed");
+		stats.put("completed", completed != null ? Long.parseLong(completed) : 0L);
 		return stats;
 	}
 
